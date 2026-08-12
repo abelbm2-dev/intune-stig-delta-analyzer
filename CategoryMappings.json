@@ -1,0 +1,8 @@
+{
+    "firewall":  "Firewall",
+    "defender":  "Microsoft Defender",
+    "browser":  "Browser",
+    "userrights":  "User Rights Assignment",
+    "audit":  "Auditing",
+    "bitlocker":  "BitLocker"
+}
