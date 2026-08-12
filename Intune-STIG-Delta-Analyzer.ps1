@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Intune STIG Delta Analyzer
+    Settings Catalog STIG Delta Analyzer
 
 .DESCRIPTION
     Compares two Settings Catalog STIG JSON exports and generates
@@ -10,7 +10,7 @@
     1.0
 
 .SUPPORTED
-    - Intune Settings Catalog JSON exports
+    - Settings Catalog JSON exports
 
 .NOT SUPPORTED IN V1
     - Endpoint Security policy exports
@@ -30,7 +30,7 @@
     - Normalizes formatting-only differences before comparison
 
 .OUTPUT
-    - Console report
+    - Console report with color-coded differences
     - CSV report
     - Append-only execution log
 
@@ -63,6 +63,29 @@ $TranslationProfilePath = Join-Path $ScriptRoot "TranslationProfiles.json"
 $Global:CategoryMappings = $null
 $Global:FriendlyNameMappings = $null
 $Global:TranslationProfiles = $null
+
+# ============================================================
+# CONSOLE COLOR OUTPUT FUNCTIONS
+# ============================================================
+
+function Write-ColorOutput {
+    param(
+        [string]$Message,
+        [ValidateSet("Green", "Red", "Yellow", "Cyan", "White", "Gray")]
+        [string]$Color = "White"
+    )
+    
+    $hostColor = @{
+        "Green"  = "Green"
+        "Red"    = "Red"
+        "Yellow" = "Yellow"
+        "Cyan"   = "Cyan"
+        "White"  = "White"
+        "Gray"   = "Gray"
+    }
+    
+    Write-Host $Message -ForegroundColor $hostColor[$Color]
+}
 
 # ============================================================
 # BASIC HELPERS
@@ -133,6 +156,23 @@ function Convert-ToComparableText {
     $text = $text -replace "^\s+", ""
     $text = $text -replace "\s+$", ""
 
+    return $text
+}
+
+function Normalize-ForDisplay {
+    param(
+        [object]$Value
+    )
+    
+    if ($null -eq $Value) {
+        return ""
+    }
+    
+    $text = "$Value"
+    # Replace newlines with semicolon separator for readability
+    $text = $text -replace "`r`n", "; "
+    $text = $text -replace "`n", "; "
+    
     return $text
 }
 
@@ -374,7 +414,7 @@ function Test-SupportedPolicyType {
     }
 
     if ($policyType -eq "EndpointSecurity") {
-        throw "Unsupported policy type detected in '$FilePath'. Version 1 supports Intune Settings Catalog exports only. Endpoint Security support may be added in a future update."
+        throw "Unsupported policy type detected in '$FilePath'. Version 1 supports Settings Catalog exports only. Endpoint Security support may be added in a future update."
     }
 
     throw "Unsupported or unknown JSON structure detected in '$FilePath'. No supported Settings Catalog settingDefinitionId structure was found."
@@ -444,12 +484,428 @@ function Get-TranslationConfidence {
         [string]$SettingName
     )
 
-    if ($Category -ne "Unknown") {
+    $categoryUnknown = ($Category -eq "Unknown")
+    $settingBlank = (Test-Blank -Value $SettingName)
+    
+    # High confidence: both category and setting name are known
+    if (-not $categoryUnknown -and -not $settingBlank) {
+        return "High"
+    }
+
+    # Medium confidence: category is known
+    if (-not $categoryUnknown) {
         return "Medium"
     }
 
-    if (-not (Test-Blank -Value $SettingName)) {
+    # Low confidence: only setting name exists
+    if (-not $settingBlank) {
         return "Low"
     }
+    
+    # None/Unknown: both are unknown/blank
+    return "None"
+}
 
-  
+function Translate-PolicyValue {
+    param(
+        [object]$Value,
+        [string]$Category,
+        [string]$SettingName
+    )
+
+    $valueText = Convert-ToComparableText -Value $Value
+
+    if (Test-Blank -Value $valueText) {
+        return "Not Configured"
+    }
+
+    # Determine which profile to use
+    $profile = "Default"
+
+    if ($Category -match "audit|logon|logoff") {
+        $profile = "Audit"
+    }
+    elseif ($SettingName -match "allow|block|blocked|allowed") {
+        $profile = "BlockAllow"
+    }
+
+    # Try to translate using selected profile
+    $profileObj = Get-PropertyValue -Object $Global:TranslationProfiles -PropertyName $profile
+    
+    if ($null -ne $profileObj) {
+        $translated = Get-PropertyValue -Object $profileObj -PropertyName $valueText
+        
+        if (-not (Test-Blank -Value $translated)) {
+            return $translated
+        }
+    }
+
+    # Fallback to default profile
+    $defaultProfile = Get-PropertyValue -Object $Global:TranslationProfiles -PropertyName "Default"
+    if ($null -ne $defaultProfile) {
+        $translated = Get-PropertyValue -Object $defaultProfile -PropertyName $valueText
+        
+        if (-not (Test-Blank -Value $translated)) {
+            return $translated
+        }
+    }
+
+    # Return value as-is if no translation found
+    return $valueText
+}
+
+# ============================================================
+# COMPARISON FUNCTIONS
+# ============================================================
+
+function Build-SettingsDictionary {
+    param(
+        [object]$JsonData
+    )
+
+    $dict = @{}
+
+    # Handle both single object and array
+    $items = @()
+    if ($JsonData -is [System.Collections.IEnumerable] -and -not ($JsonData -is [string])) {
+        $items = @($JsonData)
+    }
+    else {
+        $items = @($JsonData)
+    }
+
+    foreach ($item in $items) {
+        if (Test-Property -Object $item -PropertyName "settingDefinitionId") {
+            $id = Get-PropertyValue -Object $item -PropertyName "settingDefinitionId"
+            
+            if (-not (Test-Blank -Value $id)) {
+                $dict[$id] = $item
+            }
+        }
+    }
+
+    return $dict
+}
+
+function Compare-StigSettings {
+    param(
+        [hashtable]$PreviousSettings,
+        [hashtable]$CurrentSettings
+    )
+
+    $results = @{
+        "Added"    = @()
+        "Removed"  = @()
+        "Modified" = @()
+    }
+
+    # Find removed and modified settings
+    foreach ($id in $PreviousSettings.Keys) {
+        if ($CurrentSettings.ContainsKey($id)) {
+            # Check if modified
+            $prevValue = Get-PropertyValue -Object $PreviousSettings[$id] -PropertyName "value"
+            $currValue = Get-PropertyValue -Object $CurrentSettings[$id] -PropertyName "value"
+
+            $prevComparable = Convert-ToComparableText -Value $prevValue
+            $currComparable = Convert-ToComparableText -Value $currValue
+
+            if ($prevComparable -ne $currComparable) {
+                $results["Modified"] += @{
+                    Id = $id
+                    Previous = $prevValue
+                    Current = $currValue
+                }
+            }
+        }
+        else {
+            # Setting was removed
+            $value = Get-PropertyValue -Object $PreviousSettings[$id] -PropertyName "value"
+            $results["Removed"] += @{
+                Id = $id
+                Value = $value
+            }
+        }
+    }
+
+    # Find added settings
+    foreach ($id in $CurrentSettings.Keys) {
+        if (-not $PreviousSettings.ContainsKey($id)) {
+            $value = Get-PropertyValue -Object $CurrentSettings[$id] -PropertyName "value"
+            $results["Added"] += @{
+                Id = $id
+                Value = $value
+            }
+        }
+    }
+
+    return $results
+}
+
+# ============================================================
+# REPORT GENERATION FUNCTIONS
+# ============================================================
+
+function Export-CsvReport {
+    param(
+        [hashtable]$ComparisonResults,
+        [string]$OutputPath
+    )
+
+    $csvData = @()
+
+    # Added settings
+    foreach ($item in $ComparisonResults["Added"]) {
+        $category = Get-CategoryName -SettingDefinitionId $item.Id
+        $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+        $value = Normalize-ForDisplay -Value $item.Value
+
+        $csvData += [PSCustomObject]@{
+            Status        = "Added"
+            Category      = $category
+            Setting       = $settingName
+            PreviousValue = ""
+            CurrentValue  = $value
+        }
+    }
+
+    # Removed settings
+    foreach ($item in $ComparisonResults["Removed"]) {
+        $category = Get-CategoryName -SettingDefinitionId $item.Id
+        $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+        $value = Normalize-ForDisplay -Value $item.Value
+
+        $csvData += [PSCustomObject]@{
+            Status        = "Removed"
+            Category      = $category
+            Setting       = $settingName
+            PreviousValue = $value
+            CurrentValue  = ""
+        }
+    }
+
+    # Modified settings
+    foreach ($item in $ComparisonResults["Modified"]) {
+        $category = Get-CategoryName -SettingDefinitionId $item.Id
+        $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+        $prevValue = Normalize-ForDisplay -Value $item.Previous
+        $currValue = Normalize-ForDisplay -Value $item.Current
+
+        $csvData += [PSCustomObject]@{
+            Status        = "Modified"
+            Category      = $category
+            Setting       = $settingName
+            PreviousValue = $prevValue
+            CurrentValue  = $currValue
+        }
+    }
+
+    $csvData | Export-Csv -Path $OutputPath -NoTypeInformation -Encoding UTF8
+}
+
+function Write-ConsoleReport {
+    param(
+        [hashtable]$ComparisonResults,
+        [string]$PreviousPath,
+        [string]$CurrentPath
+    )
+
+    $addedCount = $ComparisonResults["Added"].Count
+    $removedCount = $ComparisonResults["Removed"].Count
+    $modifiedCount = $ComparisonResults["Modified"].Count
+    $totalCount = $addedCount + $removedCount + $modifiedCount
+
+    Write-Host ""
+    Write-Host "========================================================" -ForegroundColor Cyan
+    Write-Host "STIG DELTA REPORT" -ForegroundColor Cyan
+    Write-Host "========================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Comparison Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    Write-Host "Previous File: $(Split-Path -Leaf $PreviousPath)"
+    Write-Host "Current File:  $(Split-Path -Leaf $CurrentPath)"
+    Write-Host ""
+    Write-Host "SUMMARY" -ForegroundColor Cyan
+    Write-Host "-------"
+    Write-ColorOutput "Added Settings:     $addedCount" "Green"
+    Write-ColorOutput "Removed Settings:   $removedCount" "Red"
+    Write-ColorOutput "Modified Settings:  $modifiedCount" "Yellow"
+    Write-Host "Total Differences:  $totalCount"
+    Write-Host ""
+
+    # Display Modified
+    if ($modifiedCount -gt 0) {
+        Write-Host "MODIFIED SETTINGS" -ForegroundColor Yellow
+        Write-Host "-----------------"
+        
+        foreach ($item in $ComparisonResults["Modified"]) {
+            $category = Get-CategoryName -SettingDefinitionId $item.Id
+            $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+            $prevDisp = Normalize-ForDisplay -Value $item.Previous
+            $currDisp = Normalize-ForDisplay -Value $item.Current
+            
+            $prevTranslated = Translate-PolicyValue -Value $item.Previous -Category $category -SettingName $settingName
+            $currTranslated = Translate-PolicyValue -Value $item.Current -Category $category -SettingName $settingName
+
+            Write-Host "$category → $settingName"
+            Write-ColorOutput "  Previous: $prevTranslated" "Gray"
+            Write-ColorOutput "  Current:  $currTranslated" "Gray"
+            Write-Host ""
+        }
+    }
+
+    # Display Removed
+    if ($removedCount -gt 0) {
+        Write-Host "REMOVED SETTINGS" -ForegroundColor Red
+        Write-Host "----------------"
+        
+        foreach ($item in $ComparisonResults["Removed"]) {
+            $category = Get-CategoryName -SettingDefinitionId $item.Id
+            $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+            $value = Translate-PolicyValue -Value $item.Value -Category $category -SettingName $settingName
+
+            Write-ColorOutput "✗ $category → $settingName" "Red"
+            Write-ColorOutput "  Value: $value" "Gray"
+            Write-Host ""
+        }
+    }
+
+    # Display Added
+    if ($addedCount -gt 0) {
+        Write-Host "ADDED SETTINGS" -ForegroundColor Green
+        Write-Host "--------------"
+        
+        foreach ($item in $ComparisonResults["Added"]) {
+            $category = Get-CategoryName -SettingDefinitionId $item.Id
+            $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+            $value = Translate-PolicyValue -Value $item.Value -Category $category -SettingName $settingName
+
+            Write-ColorOutput "✓ $category → $settingName" "Green"
+            Write-ColorOutput "  Value: $value" "Gray"
+            Write-Host ""
+        }
+    }
+
+    Write-Host "========================================================" -ForegroundColor Cyan
+}
+
+function Write-LogReport {
+    param(
+        [hashtable]$ComparisonResults,
+        [string]$PreviousPath,
+        [string]$CurrentPath
+    )
+
+    $logEntry = @"
+========================================================
+Execution Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+Previous STIG File: $PreviousPath
+Current STIG File: $CurrentPath
+Added Count: $($ComparisonResults["Added"].Count)
+Removed Count: $($ComparisonResults["Removed"].Count)
+Modified Count: $($ComparisonResults["Modified"].Count)
+Details:
+"@
+
+    # Added details
+    foreach ($item in $ComparisonResults["Added"]) {
+        $category = Get-CategoryName -SettingDefinitionId $item.Id
+        $value = Normalize-ForDisplay -Value $item.Value
+        $logEntry += "`n - Added    | $($item.Id) | Category: $category | Value: $value"
+    }
+
+    # Removed details
+    foreach ($item in $ComparisonResults["Removed"]) {
+        $category = Get-CategoryName -SettingDefinitionId $item.Id
+        $value = Normalize-ForDisplay -Value $item.Value
+        $logEntry += "`n - Removed  | $($item.Id) | Category: $category | Value: $value"
+    }
+
+    # Modified details
+    foreach ($item in $ComparisonResults["Modified"]) {
+        $category = Get-CategoryName -SettingDefinitionId $item.Id
+        $prevValue = Normalize-ForDisplay -Value $item.Previous
+        $currValue = Normalize-ForDisplay -Value $item.Current
+        $logEntry += "`n - Modified | $($item.Id) | Category: $category | Previous: $prevValue | Current: $currValue"
+    }
+
+    $logEntry += "`n========================================================"
+
+    Add-Content -Path $LogPath -Value $logEntry
+}
+
+# ============================================================
+# MAIN EXECUTION
+# ============================================================
+
+function Main {
+    try {
+        Write-Host ""
+        Write-ColorOutput "Settings Catalog STIG Delta Analyzer v1.0" "Cyan"
+        Write-Host ""
+
+        # Initialize
+        Initialize-Repository
+
+        # Get input files
+        $previousPath = Get-JsonFilePath "Enter the path to the previous STIG JSON file (baseline):"
+        Write-ColorOutput "✓ Baseline file found: $previousPath" "Green"
+
+        $previousJson = Import-StigJson -Path $previousPath
+        Test-SupportedPolicyType -JsonObject $previousJson -FilePath $previousPath
+
+        $currentPath = Get-JsonFilePath "Enter the path to the current STIG JSON file (target):"
+        Write-ColorOutput "✓ Current file found: $currentPath" "Green"
+
+        $currentJson = Import-StigJson -Path $currentPath
+        Test-SupportedPolicyType -JsonObject $currentJson -FilePath $currentPath
+
+        # Ask about troubleshooting mode
+        $troubleResponse = Read-Host "Enable troubleshooting mode for detailed error output? (Y/N)"
+        
+        if ($troubleResponse -ieq "Y") {
+            $script:TroubleshootingMode = "Basic"
+        }
+
+        Write-Host ""
+        Write-Host "Analyzing differences..." -ForegroundColor Cyan
+        Write-Host ""
+
+        # Build dictionaries
+        $previousSettings = Build-SettingsDictionary -JsonData $previousJson
+        $currentSettings = Build-SettingsDictionary -JsonData $currentJson
+
+        # Compare
+        $comparison = Compare-StigSettings -PreviousSettings $previousSettings -CurrentSettings $currentSettings
+
+        # Generate reports
+        Write-ConsoleReport -ComparisonResults $comparison -PreviousPath $previousPath -CurrentPath $currentPath
+
+        # Export CSV
+        $csvPath = Join-Path $ReportPath "stig_delta_report.csv"
+        Export-CsvReport -ComparisonResults $comparison -OutputPath $csvPath
+        Write-ColorOutput "Report saved to: $csvPath" "Green"
+
+        # Write log
+        Write-LogReport -ComparisonResults $comparison -PreviousPath $previousPath -CurrentPath $currentPath
+        Write-ColorOutput "Log updated: $LogPath" "Green"
+
+        Write-Host ""
+        Write-ColorOutput "Execution completed successfully." "Green"
+        Write-Host ""
+    }
+    catch {
+        Write-ColorOutput "ERROR: $($_.Exception.Message)" "Red"
+        
+        if ($script:TroubleshootingMode -eq "Basic" -or $script:TroubleshootingMode -eq "Deep") {
+            Write-Host "Stack Trace:"
+            Write-Host $_.ScriptStackTrace
+        }
+        
+        exit 1
+    }
+}
+
+# ============================================================
+# SCRIPT ENTRY POINT
+# ============================================================
+
+Main
