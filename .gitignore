@@ -1,0 +1,29 @@
+# PowerShell
+*.ps1.bak
+*.log
+*.old
+
+# CSV Reports (keep in repo, but ignore timestamped versions)
+stig_delta_report_*.csv
+
+# IDE and Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Temporary files
+*~
+*.tmp
+*.bak
+
+# Build outputs
+*.zip
+*.7z
+*.rar
