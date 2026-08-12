@@ -25,29 +25,6 @@ A PowerShell-based utility for comparing Intune Settings Catalog STIG (Security 
 
 ## Scripts
 
-### Compare-STIGPolicies.ps1
-
-Main comparison script. Prompts for baseline and current STIG JSON file paths, then generates:
-- Console report with detailed category/setting/value information
-- CSV delta report: `stig_delta_report.csv`
-- Appended log entries: `stig_comparison.log`
-
-**Usage:**
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File 'Compare-STIGPolicies.ps1'
-```
-
-When prompted, provide:
-1. Path to previous STIG JSON file (baseline)
-2. Path to current STIG JSON file (target)
-3. Troubleshooting mode preference (Y/N)
-
-**Output:**
-- Console: Color-coded report showing Modified, Added, and Removed items
-- CSV: `stig_delta_report.csv` with columns: Status, Category, Setting, PreviousValue, CurrentValue
-- Log: `stig_comparison.log` (appended with each execution)
-
 ### Intune-STIG-Delta-Analyzer.ps1
 
 Alternative analyzer script with additional configuration and translation profiles.
@@ -102,12 +79,13 @@ Details:
 
 - PowerShell 5.1 or later
 - Windows operating system
-- Access to Intune Settings Catalog JSON exports
+- Access to Settings Catalog JSON exports
 
 ## Usage Scenario
 
-1. Download two STIG JSON exports from Intune (e.g., v2r7 and v2r8 releases)
-2. Run the comparison script
+1. Download two STIG JSON exports from Intune Policy Package (month/year) (e.g., v2r7 and v2r8 releases)
+2. Execute the delta analyzer script
+   - Select the .json file, right click and choose *copy as path*
 3. Review the generated CSV and log files
 4. Use delta information for STIG update documentation and compliance tracking
 
