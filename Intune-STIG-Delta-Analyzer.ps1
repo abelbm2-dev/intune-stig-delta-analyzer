@@ -3,7 +3,7 @@
     Intune STIG Delta Analyzer
 
 .DESCRIPTION
-    Compares two Intune Settings Catalog STIG JSON exports and generates
+    Compares two Settings Catalog STIG JSON exports and generates
     administrator-friendly delta reports for STIG review.
 
 .VERSION
@@ -21,7 +21,6 @@
 .FUTURE ENHANCEMENTS
     - Endpoint Security policy comparison
     - Security Baseline comparison
-    - POAM correlation
     - Automated DISA/STIG delta validation
 
 .COMPARISON METHOD
