@@ -278,7 +278,8 @@ function ConvertTo-FriendlySettingName {
 
     $friendly = $name -replace "_", " "
     $friendly = $friendly.Trim()
-    return if ($friendly -eq "") { "Unknown Setting" } else { $friendly }
+    if ($friendly -eq "") { return "Unknown Setting" }
+    return $friendly
 }
 
 function Get-TranslationConfidence {
@@ -318,17 +319,81 @@ function Translate-PolicyValue {
 function Build-SettingsDictionary {
     param([object]$JsonData)
     $dict = @{}
-    $items = @($JsonData)
+    $items = @()
+    
+    # Check if JsonData has a 'settings' property (Settings Catalog structure)
+    if (Test-Property -Object $JsonData -PropertyName "settings") {
+        $items = @(Get-PropertyValue -Object $JsonData -PropertyName "settings")
+    }
+    # Check if JsonData has a 'value' property (alternative structure)
+    elseif (Test-Property -Object $JsonData -PropertyName "value") {
+        $items = @(Get-PropertyValue -Object $JsonData -PropertyName "value")
+    }
+    # Otherwise treat JsonData itself as an array
+    else {
+        $items = @($JsonData)
+    }
     
     foreach ($item in $items) {
-        if (Test-Property -Object $item -PropertyName "settingDefinitionId") {
-            $id = Get-PropertyValue -Object $item -PropertyName "settingDefinitionId"
-            if (-not (Test-Blank -Value $id)) {
-                $dict[$id] = $item
+        $id = $null
+        
+        # Try to get settingDefinitionId from settingInstance (Settings Catalog structure)
+        if (Test-Property -Object $item -PropertyName "settingInstance") {
+            $settingInstance = Get-PropertyValue -Object $item -PropertyName "settingInstance"
+            if (Test-Property -Object $settingInstance -PropertyName "settingDefinitionId") {
+                $id = Get-PropertyValue -Object $settingInstance -PropertyName "settingDefinitionId"
             }
+        }
+        
+        # Fallback: try to get settingDefinitionId directly from item
+        if ($null -eq $id -or (Test-Blank -Value $id)) {
+            if (Test-Property -Object $item -PropertyName "settingDefinitionId") {
+                $id = Get-PropertyValue -Object $item -PropertyName "settingDefinitionId"
+            }
+        }
+        
+        if (-not (Test-Blank -Value $id)) {
+            $dict[$id] = $item
         }
     }
     return $dict
+}
+
+function Get-SettingValue {
+    param([object]$SettingItem)
+    
+    # Try to extract value from settingInstance structure
+    if (Test-Property -Object $SettingItem -PropertyName "settingInstance") {
+        $settingInstance = Get-PropertyValue -Object $SettingItem -PropertyName "settingInstance"
+        
+        # Try choiceSettingValue
+        if (Test-Property -Object $settingInstance -PropertyName "choiceSettingValue") {
+            $choiceValue = Get-PropertyValue -Object $settingInstance -PropertyName "choiceSettingValue"
+            if (Test-Property -Object $choiceValue -PropertyName "value") {
+                return Get-PropertyValue -Object $choiceValue -PropertyName "value"
+            }
+        }
+        
+        # Try simpleSettingValue
+        if (Test-Property -Object $settingInstance -PropertyName "simpleSettingValue") {
+            $simpleValue = Get-PropertyValue -Object $settingInstance -PropertyName "simpleSettingValue"
+            if (Test-Property -Object $simpleValue -PropertyName "value") {
+                return Get-PropertyValue -Object $simpleValue -PropertyName "value"
+            }
+        }
+        
+        # Try value directly on settingInstance
+        if (Test-Property -Object $settingInstance -PropertyName "value") {
+            return Get-PropertyValue -Object $settingInstance -PropertyName "value"
+        }
+    }
+    
+    # Fallback: try to get value directly from item
+    if (Test-Property -Object $SettingItem -PropertyName "value") {
+        return Get-PropertyValue -Object $SettingItem -PropertyName "value"
+    }
+    
+    return $null
 }
 
 function Compare-StigSettings {
@@ -342,22 +407,22 @@ function Compare-StigSettings {
 
     foreach ($id in $PreviousSettings.Keys) {
         if ($CurrentSettings.ContainsKey($id)) {
-            $prevValue = Get-PropertyValue -Object $PreviousSettings[$id] -PropertyName "value"
-            $currValue = Get-PropertyValue -Object $CurrentSettings[$id] -PropertyName "value"
+            $prevValue = Get-SettingValue -SettingItem $PreviousSettings[$id]
+            $currValue = Get-SettingValue -SettingItem $CurrentSettings[$id]
             
             if ((Convert-ToComparableText -Value $prevValue) -ne (Convert-ToComparableText -Value $currValue)) {
                 $results["Modified"] += @{ Id = $id; Previous = $prevValue; Current = $currValue }
             }
         }
         else {
-            $value = Get-PropertyValue -Object $PreviousSettings[$id] -PropertyName "value"
+            $value = Get-SettingValue -SettingItem $PreviousSettings[$id]
             $results["Removed"] += @{ Id = $id; Value = $value }
         }
     }
 
     foreach ($id in $CurrentSettings.Keys) {
         if (-not $PreviousSettings.ContainsKey($id)) {
-            $value = Get-PropertyValue -Object $CurrentSettings[$id] -PropertyName "value"
+            $value = Get-SettingValue -SettingItem $CurrentSettings[$id]
             $results["Added"] += @{ Id = $id; Value = $value }
         }
     }
