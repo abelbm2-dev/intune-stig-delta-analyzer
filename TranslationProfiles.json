@@ -1,0 +1,20 @@
+{
+    "Default":  {
+                    "false":  "Disabled",
+                    "true":  "Enabled",
+                    "1":  "Enabled",
+                    "0":  "Disabled"
+                },
+    "Audit":  {
+                  "2":  "Failure",
+                  "3":  "Success + Failure",
+                  "1":  "Success",
+                  "0":  "No Auditing"
+              },
+    "EnableDisable":  {
+                          "false":  "Disabled",
+                          "true":  "Enabled",
+                          "1":  "Enabled",
+                          "0":  "Disabled"
+                      }
+}

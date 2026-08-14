@@ -1,16 +1,16 @@
 <#
 .SYNOPSIS
-    Intune STIG Delta Analyzer
+    Settings Catalog STIG Delta Analyzer
 
 .DESCRIPTION
-    Compares two Intune Settings Catalog STIG JSON exports and generates
+    Compares two Settings Catalog STIG JSON exports and generates
     administrator-friendly delta reports for STIG review.
 
 .VERSION
     1.0
 
 .SUPPORTED
-    - Intune Settings Catalog JSON exports
+    - Settings Catalog JSON exports
 
 .NOT SUPPORTED IN V1
     - Endpoint Security policy exports
@@ -21,7 +21,6 @@
 .FUTURE ENHANCEMENTS
     - Endpoint Security policy comparison
     - Security Baseline comparison
-    - POAM correlation
     - Automated DISA/STIG delta validation
 
 .COMPARISON METHOD
@@ -31,7 +30,7 @@
     - Normalizes formatting-only differences before comparison
 
 .OUTPUT
-    - Console report
+    - Console report with color-coded differences
     - CSV report
     - Append-only execution log
 
@@ -66,74 +65,56 @@ $Global:FriendlyNameMappings = $null
 $Global:TranslationProfiles = $null
 
 # ============================================================
+# CONSOLE COLOR OUTPUT FUNCTIONS
+# ============================================================
+
+function Write-ColorOutput {
+    param(
+        [string]$Message,
+        [ValidateSet("Green", "Red", "Yellow", "Cyan", "White", "Gray")]
+        [string]$Color = "White"
+    )
+    
+    Write-Host $Message -ForegroundColor $Color
+}
+
+# ============================================================
 # BASIC HELPERS
 # ============================================================
 
 function Test-Blank {
-    param(
-        [object]$Value
-    )
-
-    if ($null -eq $Value) {
-        return $true
-    }
-
-    $text = "$Value"
-    $text = $text -replace "^\s+", ""
-    $text = $text -replace "\s+$", ""
-
-    if ($text -eq "") {
-        return $true
-    }
-
-    return $false
+    param([object]$Value)
+    if ($null -eq $Value) { return $true }
+    $text = "$Value".Trim()
+    return $text -eq ""
 }
 
 function Test-Property {
-    param(
-        [object]$Object,
-        [string]$PropertyName
-    )
-
-    if ($null -eq $Object) {
-        return $false
-    }
-
-    $property = $Object.PSObject.Properties[$PropertyName]
-
-    if ($null -eq $property) {
-        return $false
-    }
-
-    return $true
+    param([object]$Object, [string]$PropertyName)
+    if ($null -eq $Object) { return $false }
+    return $null -ne $Object.PSObject.Properties[$PropertyName]
 }
 
 function Get-PropertyValue {
-    param(
-        [object]$Object,
-        [string]$PropertyName
-    )
-
+    param([object]$Object, [string]$PropertyName)
     if (Test-Property -Object $Object -PropertyName $PropertyName) {
         return $Object.PSObject.Properties[$PropertyName].Value
     }
-
     return $null
 }
 
 function Convert-ToComparableText {
-    param(
-        [object]$Value
-    )
+    param([object]$Value)
+    if ($null -eq $Value) { return "" }
+    return "$Value".Trim()
+}
 
-    if ($null -eq $Value) {
-        return ""
-    }
-
+function Normalize-ForDisplay {
+    param([object]$Value)
+    if ($null -eq $Value) { return "" }
     $text = "$Value"
-    $text = $text -replace "^\s+", ""
-    $text = $text -replace "\s+$", ""
-
+    $text = $text -replace "`r`n", "; "
+    $text = $text -replace "`n", "; "
     return $text
 }
 
@@ -142,169 +123,74 @@ function Convert-ToComparableText {
 # ============================================================
 
 function Initialize-Repository {
-
     if (-not (Test-Path $ScriptRoot)) {
         New-Item -Path $ScriptRoot -ItemType Directory -Force | Out-Null
     }
-
     if (-not (Test-Path $ReportPath)) {
         New-Item -Path $ReportPath -ItemType Directory -Force | Out-Null
     }
-
     Initialize-MappingFiles
     Import-MappingFiles
 }
 
 function Write-ExecutionLog {
-    param(
-        [string]$Message
-    )
-
+    param([string]$Message)
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $entry = "$timestamp`t$Message"
-
     Add-Content -Path $LogPath -Value $entry
 }
 
 function Initialize-MappingFiles {
-
     if (-not (Test-Path $CategoryMappingPath)) {
-
-        $defaultCategoryMappings = @"
-{
-    "audit": "Auditing",
-    "userrights": "User Rights Assignment",
-    "defender": "Microsoft Defender",
-    "microsoftdefender": "Microsoft Defender",
-    "attack_surface_reduction": "Attack Surface Reduction",
-    "asr": "Attack Surface Reduction",
-    "firewall": "Firewall",
-    "wifi": "Wi-Fi",
-    "bitlocker": "BitLocker",
-    "browser": "Browser",
-    "edge": "Browser",
-    "internetexplorer": "Browser",
-    "credentialguard": "Credential Guard",
-    "deviceguard": "Device Guard",
-    "remotedesktop": "Remote Desktop Services",
-    "smartscreen": "SmartScreen",
-    "explorer": "File Explorer",
-    "logon": "Windows Logon",
-    "power": "Power Management",
-    "connectivity": "Connectivity",
-    "devicelock": "Device Lock",
-    "passportforwork": "Windows Hello for Business",
-    "whfb": "Windows Hello for Business",
-    "privacy": "Privacy",
-    "windowsai": "Windows AI",
-    "windowsinkworkspace": "Windows Ink Workspace",
-    "credentialproviders": "Credential Providers",
-    "autoplay": "AutoPlay",
-    "localpoliciessecurityoptions": "Local Policies Security Options"
-}
-"@
-
+        $defaultCategoryMappings = @{
+            "audit" = "Auditing"
+            "userrights" = "User Rights Assignment"
+            "defender" = "Microsoft Defender"
+            "firewall" = "Firewall"
+            "bitlocker" = "BitLocker"
+            "browser" = "Browser"
+        } | ConvertTo-Json
         Set-Content -Path $CategoryMappingPath -Value $defaultCategoryMappings
     }
 
     if (-not (Test-Path $FriendlyNameMapPath)) {
-
-        $defaultFriendlyNameMappings = @"
-{
-    "audit_objectaccess_audithandlemanipulation": "Object Access - Audit Handle Manipulation",
-    "audit_objectaccess_auditfilesystem": "Object Access - Audit File System",
-    "audit_objectaccess_auditregistry": "Object Access - Audit Registry",
-    "audit_logonlogoff_auditlogon": "Logon Logoff - Audit Logon",
-    "audit_logonlogoff_auditlogoff": "Logon Logoff - Audit Logoff",
-    "audit_accountlogon_auditcredentialvalidation": "Account Logon - Audit Credential Validation",
-
-    "userrights_allowlogonlocally": "Allow Log On Locally",
-    "userrights_denylogonlocally": "Deny Log On Locally",
-    "userrights_allowlogonthroughremotedesktopservices": "Allow Log On Through Remote Desktop Services",
-    "userrights_denylogonthroughremotedesktopservices": "Deny Log On Through Remote Desktop Services",
-    "userrights_debugprograms": "Debug Programs",
-    "userrights_impersonateaclientafterauthentication": "Impersonate A Client After Authentication",
-    "userrights_accessthiscomputerfromthenetwork": "Access This Computer From The Network",
-    "userrights_denyaccesstothiscomputerfromthenetwork": "Deny Access To This Computer From The Network",
-    "userrights_backupthefilesanddirectories": "Back Up Files And Directories",
-    "userrights_restorefilesanddirectories": "Restore Files And Directories",
-    "userrights_takeownershipoffilesorotherobjects": "Take Ownership Of Files Or Other Objects",
-
-    "defender_allowrealtimemonitoring": "Allow Real-Time Monitoring",
-    "defender_allowcloudprotection": "Allow Cloud Protection",
-    "defender_submitunknownsamples": "Submit Unknown Samples",
-    "defender_checkforsignaturesbeforerunningscan": "Check For Signatures Before Running Scan",
-    "defender_scanremovabledrivesduringfullscan": "Scan Removable Drives During Full Scan",
-    "defender_allowbehaviormonitoring": "Allow Behavior Monitoring",
-    "defender_allowioavprotection": "Allow IOAV Protection",
-
-    "browser_allowpasswordmanager": "Allow Password Manager",
-    "wifi_allowautoconnecttowifisensehotspots": "Allow Auto Connect To Wi-Fi Sense Hotspots"
-}
-"@
-
+        $defaultFriendlyNameMappings = @{
+            "audit_objectaccess_auditfilesystem" = "Object Access - Audit File System"
+            "defender_allowrealtimemonitoring" = "Allow Real-Time Monitoring"
+        } | ConvertTo-Json
         Set-Content -Path $FriendlyNameMapPath -Value $defaultFriendlyNameMappings
     }
 
     if (-not (Test-Path $TranslationProfilePath)) {
-
-        $defaultTranslationProfiles = @"
-{
-    "Audit": {
-        "0": "No Auditing",
-        "1": "Success",
-        "2": "Failure",
-        "3": "Success + Failure"
-    },
-    "EnableDisable": {
-        "true": "Enabled",
-        "false": "Disabled",
-        "1": "Enabled",
-        "0": "Disabled",
-        "enabled": "Enabled",
-        "disabled": "Disabled",
-        "enable": "Enabled",
-        "disable": "Disabled"
-    },
-    "BlockAllow": {
-        "true": "Blocked",
-        "false": "Allowed",
-        "1": "Blocked",
-        "0": "Allowed",
-        "block": "Blocked",
-        "blocked": "Blocked",
-        "allow": "Allowed",
-        "allowed": "Allowed",
-        "enabled": "Blocked",
-        "disabled": "Allowed"
-    },
-    "Default": {
-        "true": "Enabled",
-        "false": "Disabled",
-        "1": "Enabled",
-        "0": "Disabled"
-    }
-}
-"@
-
+        $defaultTranslationProfiles = @{
+            "Audit" = @{
+                "0" = "No Auditing"
+                "1" = "Success"
+                "2" = "Failure"
+                "3" = "Success + Failure"
+            }
+            "EnableDisable" = @{
+                "true" = "Enabled"
+                "false" = "Disabled"
+                "1" = "Enabled"
+                "0" = "Disabled"
+            }
+            "Default" = @{
+                "true" = "Enabled"
+                "false" = "Disabled"
+                "1" = "Enabled"
+                "0" = "Disabled"
+            }
+        } | ConvertTo-Json
         Set-Content -Path $TranslationProfilePath -Value $defaultTranslationProfiles
     }
 }
 
 function Import-MappingFiles {
-
     try {
-        $Global:CategoryMappings =
-            Get-Content -Path $CategoryMappingPath -Raw -ErrorAction Stop |
-            ConvertFrom-Json -ErrorAction Stop
-
-        $Global:FriendlyNameMappings =
-            Get-Content -Path $FriendlyNameMapPath -Raw -ErrorAction Stop |
-            ConvertFrom-Json -ErrorAction Stop
-
-        $Global:TranslationProfiles =
-            Get-Content -Path $TranslationProfilePath -Raw -ErrorAction Stop |
-            ConvertFrom-Json -ErrorAction Stop
+        $Global:CategoryMappings = Get-Content -Path $CategoryMappingPath -Raw | ConvertFrom-Json
+        $Global:FriendlyNameMappings = Get-Content -Path $FriendlyNameMapPath -Raw | ConvertFrom-Json
+        $Global:TranslationProfiles = Get-Content -Path $TranslationProfilePath -Raw | ConvertFrom-Json
     }
     catch {
         throw "Failed to load mapping files. Error: $($_.Exception.Message)"
@@ -316,28 +202,19 @@ function Import-MappingFiles {
 # ============================================================
 
 function Get-JsonFilePath {
-    param(
-        [string]$PromptMessage
-    )
-
+    param([string]$PromptMessage)
     $path = Read-Host $PromptMessage
-
     if (-not (Test-Path $path)) {
         throw "File not found: $path"
     }
-
     return $path
 }
 
 function Import-StigJson {
-    param(
-        [string]$Path
-    )
-
+    param([string]$Path)
     try {
         $content = Get-Content -Path $Path -Raw -ErrorAction Stop
-        $json = $content | ConvertFrom-Json -ErrorAction Stop
-        return $json
+        return $content | ConvertFrom-Json -ErrorAction Stop
     }
     catch {
         throw "Unable to read or parse JSON file: $Path. Error: $($_.Exception.Message)"
@@ -345,78 +222,49 @@ function Import-StigJson {
 }
 
 function Get-PolicyType {
-    param(
-        [object]$JsonObject
-    )
-
+    param([object]$JsonObject)
     $jsonText = $JsonObject | ConvertTo-Json -Depth 100
-
     if ($jsonText -match "templateFamily" -and $jsonText -match "endpointSecurity") {
         return "EndpointSecurity"
     }
-
     if ($jsonText -match "settingDefinitionId") {
         return "SettingsCatalog"
     }
-
     return "Unknown"
 }
 
 function Test-SupportedPolicyType {
-    param(
-        [object]$JsonObject,
-        [string]$FilePath
-    )
-
+    param([object]$JsonObject, [string]$FilePath)
     $policyType = Get-PolicyType -JsonObject $JsonObject
-
     if ($policyType -eq "SettingsCatalog") {
         return $true
     }
-
     if ($policyType -eq "EndpointSecurity") {
-        throw "Unsupported policy type detected in '$FilePath'. Version 1 supports Intune Settings Catalog exports only. Endpoint Security support may be added in a future update."
+        throw "Unsupported policy type. Version 1 supports Settings Catalog exports only."
     }
-
-    throw "Unsupported or unknown JSON structure detected in '$FilePath'. No supported Settings Catalog settingDefinitionId structure was found."
+    throw "Unsupported or unknown JSON structure in '$FilePath'."
 }
 
 # ============================================================
-# CATEGORY AND FRIENDLY NAME TRANSLATION
+# TRANSLATION FUNCTIONS
 # ============================================================
 
 function Get-CategoryName {
-    param(
-        [string]$SettingDefinitionId
-    )
-
-    if (Test-Blank -Value $SettingDefinitionId) {
-        return "Unknown"
-    }
-
+    param([string]$SettingDefinitionId)
+    if (Test-Blank -Value $SettingDefinitionId) { return "Unknown" }
     foreach ($property in $Global:CategoryMappings.PSObject.Properties) {
-        $key = $property.Name
-        $value = $property.Value
-
-        if ($SettingDefinitionId -match $key) {
-            return $value
+        if ($SettingDefinitionId -match $property.Name) {
+            return $property.Value
         }
     }
-
     return "Unknown"
 }
 
 function ConvertTo-FriendlySettingName {
-    param(
-        [string]$SettingDefinitionId
-    )
-
-    if (Test-Blank -Value $SettingDefinitionId) {
-        return "Unknown Setting"
-    }
-
+    param([string]$SettingDefinitionId)
+    if (Test-Blank -Value $SettingDefinitionId) { return "Unknown Setting" }
+    
     $name = "$SettingDefinitionId"
-
     $name = $name -replace "device_vendor_msft_policy_config_", ""
     $name = $name -replace "user_vendor_msft_policy_config_", ""
     $name = $name -replace "vendor_msft_policy_config_", ""
@@ -429,28 +277,372 @@ function ConvertTo-FriendlySettingName {
     }
 
     $friendly = $name -replace "_", " "
-    $friendly = $friendly -replace "^\s+", ""
-    $friendly = $friendly -replace "\s+$", ""
-
-    if ($friendly -eq "") {
-        return "Unknown Setting"
-    }
-
+    $friendly = $friendly.Trim()
+    if ($friendly -eq "") { return "Unknown Setting" }
     return $friendly
 }
 
 function Get-TranslationConfidence {
-    param(
-        [string]$Category,
-        [string]$SettingName
-    )
+    param([string]$Category, [string]$SettingName)
+    
+    $categoryUnknown = ($Category -eq "Unknown")
+    $settingBlank = (Test-Blank -Value $SettingName)
+    
+    if (-not $categoryUnknown -and -not $settingBlank) { return "High" }
+    if (-not $categoryUnknown) { return "Medium" }
+    if (-not $settingBlank) { return "Low" }
+    return "None"
+}
 
-    if ($Category -ne "Unknown") {
-        return "Medium"
+function Translate-PolicyValue {
+    param([object]$Value, [string]$Category, [string]$SettingName)
+    
+    $valueText = Convert-ToComparableText -Value $Value
+    if (Test-Blank -Value $valueText) { return "Not Configured" }
+
+    $profile = "Default"
+    if ($Category -match "audit|logon|logoff") { $profile = "Audit" }
+    
+    $profileObj = Get-PropertyValue -Object $Global:TranslationProfiles -PropertyName $profile
+    if ($null -ne $profileObj) {
+        $translated = Get-PropertyValue -Object $profileObj -PropertyName $valueText
+        if (-not (Test-Blank -Value $translated)) { return $translated }
     }
 
-    if (-not (Test-Blank -Value $SettingName)) {
-        return "Low"
+    return $valueText
+}
+
+# ============================================================
+# COMPARISON FUNCTIONS
+# ============================================================
+
+function Build-SettingsDictionary {
+    param([object]$JsonData)
+    $dict = @{}
+    $items = @()
+    
+    # Check if JsonData has a 'settings' property (Settings Catalog structure)
+    if (Test-Property -Object $JsonData -PropertyName "settings") {
+        $items = @(Get-PropertyValue -Object $JsonData -PropertyName "settings")
+    }
+    # Check if JsonData has a 'value' property (alternative structure)
+    elseif (Test-Property -Object $JsonData -PropertyName "value") {
+        $items = @(Get-PropertyValue -Object $JsonData -PropertyName "value")
+    }
+    # Otherwise treat JsonData itself as an array
+    else {
+        $items = @($JsonData)
+    }
+    
+    foreach ($item in $items) {
+        $id = $null
+        
+        # Try to get settingDefinitionId from settingInstance (Settings Catalog structure)
+        if (Test-Property -Object $item -PropertyName "settingInstance") {
+            $settingInstance = Get-PropertyValue -Object $item -PropertyName "settingInstance"
+            if (Test-Property -Object $settingInstance -PropertyName "settingDefinitionId") {
+                $id = Get-PropertyValue -Object $settingInstance -PropertyName "settingDefinitionId"
+            }
+        }
+        
+        # Fallback: try to get settingDefinitionId directly from item
+        if ($null -eq $id -or (Test-Blank -Value $id)) {
+            if (Test-Property -Object $item -PropertyName "settingDefinitionId") {
+                $id = Get-PropertyValue -Object $item -PropertyName "settingDefinitionId"
+            }
+        }
+        
+        if (-not (Test-Blank -Value $id)) {
+            $dict[$id] = $item
+        }
+    }
+    return $dict
+}
+
+function Get-SettingValue {
+    param([object]$SettingItem)
+    
+    # Try to extract value from settingInstance structure
+    if (Test-Property -Object $SettingItem -PropertyName "settingInstance") {
+        $settingInstance = Get-PropertyValue -Object $SettingItem -PropertyName "settingInstance"
+        
+        # Try choiceSettingValue
+        if (Test-Property -Object $settingInstance -PropertyName "choiceSettingValue") {
+            $choiceValue = Get-PropertyValue -Object $settingInstance -PropertyName "choiceSettingValue"
+            if (Test-Property -Object $choiceValue -PropertyName "value") {
+                return Get-PropertyValue -Object $choiceValue -PropertyName "value"
+            }
+        }
+        
+        # Try simpleSettingValue
+        if (Test-Property -Object $settingInstance -PropertyName "simpleSettingValue") {
+            $simpleValue = Get-PropertyValue -Object $settingInstance -PropertyName "simpleSettingValue"
+            if (Test-Property -Object $simpleValue -PropertyName "value") {
+                return Get-PropertyValue -Object $simpleValue -PropertyName "value"
+            }
+        }
+        
+        # Try value directly on settingInstance
+        if (Test-Property -Object $settingInstance -PropertyName "value") {
+            return Get-PropertyValue -Object $settingInstance -PropertyName "value"
+        }
+    }
+    
+    # Fallback: try to get value directly from item
+    if (Test-Property -Object $SettingItem -PropertyName "value") {
+        return Get-PropertyValue -Object $SettingItem -PropertyName "value"
+    }
+    
+    return $null
+}
+
+function Compare-StigSettings {
+    param([hashtable]$PreviousSettings, [hashtable]$CurrentSettings)
+    
+    $results = @{
+        "Added" = @()
+        "Removed" = @()
+        "Modified" = @()
     }
 
-  
+    foreach ($id in $PreviousSettings.Keys) {
+        if ($CurrentSettings.ContainsKey($id)) {
+            $prevValue = Get-SettingValue -SettingItem $PreviousSettings[$id]
+            $currValue = Get-SettingValue -SettingItem $CurrentSettings[$id]
+            
+            if ((Convert-ToComparableText -Value $prevValue) -ne (Convert-ToComparableText -Value $currValue)) {
+                $results["Modified"] += @{ Id = $id; Previous = $prevValue; Current = $currValue }
+            }
+        }
+        else {
+            $value = Get-SettingValue -SettingItem $PreviousSettings[$id]
+            $results["Removed"] += @{ Id = $id; Value = $value }
+        }
+    }
+
+    foreach ($id in $CurrentSettings.Keys) {
+        if (-not $PreviousSettings.ContainsKey($id)) {
+            $value = Get-SettingValue -SettingItem $CurrentSettings[$id]
+            $results["Added"] += @{ Id = $id; Value = $value }
+        }
+    }
+    return $results
+}
+
+# ============================================================
+# REPORT GENERATION
+# ============================================================
+
+function Export-CsvReport {
+    param([hashtable]$ComparisonResults, [string]$OutputPath)
+    
+    $csvData = @()
+    
+    foreach ($item in $ComparisonResults["Added"]) {
+        $category = Get-CategoryName -SettingDefinitionId $item.Id
+        $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+        $value = Normalize-ForDisplay -Value $item.Value
+        $csvData += [PSCustomObject]@{
+            Status = "Added"
+            Category = $category
+            Setting = $settingName
+            PreviousValue = ""
+            CurrentValue = $value
+        }
+    }
+    
+    foreach ($item in $ComparisonResults["Removed"]) {
+        $category = Get-CategoryName -SettingDefinitionId $item.Id
+        $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+        $value = Normalize-ForDisplay -Value $item.Value
+        $csvData += [PSCustomObject]@{
+            Status = "Removed"
+            Category = $category
+            Setting = $settingName
+            PreviousValue = $value
+            CurrentValue = ""
+        }
+    }
+    
+    foreach ($item in $ComparisonResults["Modified"]) {
+        $category = Get-CategoryName -SettingDefinitionId $item.Id
+        $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+        $prevValue = Normalize-ForDisplay -Value $item.Previous
+        $currValue = Normalize-ForDisplay -Value $item.Current
+        $csvData += [PSCustomObject]@{
+            Status = "Modified"
+            Category = $category
+            Setting = $settingName
+            PreviousValue = $prevValue
+            CurrentValue = $currValue
+        }
+    }
+    
+    $csvData | Export-Csv -Path $OutputPath -NoTypeInformation -Encoding UTF8
+}
+
+function Write-ConsoleReport {
+    param([hashtable]$ComparisonResults, [string]$PreviousPath, [string]$CurrentPath)
+    
+    $addedCount = $ComparisonResults["Added"].Count
+    $removedCount = $ComparisonResults["Removed"].Count
+    $modifiedCount = $ComparisonResults["Modified"].Count
+    
+    Write-Host ""
+    Write-Host "========================================================" -ForegroundColor Cyan
+    Write-Host "STIG DELTA REPORT" -ForegroundColor Cyan
+    Write-Host "========================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Comparison Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    Write-Host "Previous File: $(Split-Path -Leaf $PreviousPath)"
+    Write-Host "Current File:  $(Split-Path -Leaf $CurrentPath)"
+    Write-Host ""
+    Write-Host "SUMMARY" -ForegroundColor Cyan
+    Write-Host "-------"
+    Write-ColorOutput "Added Settings:     $addedCount" "Green"
+    Write-ColorOutput "Removed Settings:   $removedCount" "Red"
+    Write-ColorOutput "Modified Settings:  $modifiedCount" "Yellow"
+    Write-Host ""
+
+    if ($modifiedCount -gt 0) {
+        Write-Host "MODIFIED SETTINGS" -ForegroundColor Yellow
+        Write-Host "-----------------"
+        foreach ($item in $ComparisonResults["Modified"]) {
+            $category = Get-CategoryName -SettingDefinitionId $item.Id
+            $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+            $prevTranslated = Translate-PolicyValue -Value $item.Previous -Category $category -SettingName $settingName
+            $currTranslated = Translate-PolicyValue -Value $item.Current -Category $category -SettingName $settingName
+            Write-Host "$category -> $settingName"
+            Write-ColorOutput "  Previous: $prevTranslated" "Gray"
+            Write-ColorOutput "  Current:  $currTranslated" "Gray"
+            Write-Host ""
+        }
+    }
+
+    if ($removedCount -gt 0) {
+        Write-Host "REMOVED SETTINGS" -ForegroundColor Red
+        Write-Host "----------------"
+        foreach ($item in $ComparisonResults["Removed"]) {
+            $category = Get-CategoryName -SettingDefinitionId $item.Id
+            $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+            $value = Translate-PolicyValue -Value $item.Value -Category $category -SettingName $settingName
+            Write-ColorOutput "[X] $category -> $settingName" "Red"
+            Write-ColorOutput "    Value: $value" "Gray"
+            Write-Host ""
+        }
+    }
+
+    if ($addedCount -gt 0) {
+        Write-Host "ADDED SETTINGS" -ForegroundColor Green
+        Write-Host "--------------"
+        foreach ($item in $ComparisonResults["Added"]) {
+            $category = Get-CategoryName -SettingDefinitionId $item.Id
+            $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+            $value = Translate-PolicyValue -Value $item.Value -Category $category -SettingName $settingName
+            Write-ColorOutput "[+] $category -> $settingName" "Green"
+            Write-ColorOutput "    Value: $value" "Gray"
+            Write-Host ""
+        }
+    }
+
+    Write-Host "========================================================" -ForegroundColor Cyan
+}
+
+function Write-LogReport {
+    param([hashtable]$ComparisonResults, [string]$PreviousPath, [string]$CurrentPath)
+    
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logEntry = @"
+========================================================
+Execution Date: $timestamp
+Previous STIG File: $PreviousPath
+Current STIG File: $CurrentPath
+Added Count: $($ComparisonResults["Added"].Count)
+Removed Count: $($ComparisonResults["Removed"].Count)
+Modified Count: $($ComparisonResults["Modified"].Count)
+Details:
+"@
+
+    foreach ($item in $ComparisonResults["Added"]) {
+        $category = Get-CategoryName -SettingDefinitionId $item.Id
+        $value = Normalize-ForDisplay -Value $item.Value
+        $logEntry += "`n - Added    | $($item.Id) | Category: $category | Value: $value"
+    }
+
+    foreach ($item in $ComparisonResults["Removed"]) {
+        $category = Get-CategoryName -SettingDefinitionId $item.Id
+        $value = Normalize-ForDisplay -Value $item.Value
+        $logEntry += "`n - Removed  | $($item.Id) | Category: $category | Value: $value"
+    }
+
+    foreach ($item in $ComparisonResults["Modified"]) {
+        $category = Get-CategoryName -SettingDefinitionId $item.Id
+        $prevValue = Normalize-ForDisplay -Value $item.Previous
+        $currValue = Normalize-ForDisplay -Value $item.Current
+        $logEntry += "`n - Modified | $($item.Id) | Category: $category | Previous: $prevValue | Current: $currValue"
+    }
+
+    $logEntry += "`n========================================================"
+    Add-Content -Path $LogPath -Value $logEntry
+}
+
+# ============================================================
+# MAIN EXECUTION
+# ============================================================
+
+function Main {
+    try {
+        Write-Host ""
+        Write-ColorOutput "Settings Catalog STIG Delta Analyzer v1.0" "Cyan"
+        Write-Host ""
+
+        Initialize-Repository
+
+        $previousPath = Get-JsonFilePath "Enter the path to the previous STIG JSON file (baseline):"
+        Write-ColorOutput "OK: Baseline file found" "Green"
+
+        $previousJson = Import-StigJson -Path $previousPath
+        Test-SupportedPolicyType -JsonObject $previousJson -FilePath $previousPath
+
+        $currentPath = Get-JsonFilePath "Enter the path to the current STIG JSON file (target):"
+        Write-ColorOutput "OK: Current file found" "Green"
+
+        $currentJson = Import-StigJson -Path $currentPath
+        Test-SupportedPolicyType -JsonObject $currentJson -FilePath $currentPath
+
+        $troubleResponse = Read-Host "Enable troubleshooting mode for detailed error output? (Y/N)"
+        if ($troubleResponse -ieq "Y") {
+            $script:TroubleshootingMode = "Basic"
+        }
+
+        Write-Host ""
+        Write-Host "Analyzing differences..." -ForegroundColor Cyan
+        Write-Host ""
+
+        $previousSettings = Build-SettingsDictionary -JsonData $previousJson
+        $currentSettings = Build-SettingsDictionary -JsonData $currentJson
+        $comparison = Compare-StigSettings -PreviousSettings $previousSettings -CurrentSettings $currentSettings
+
+        Write-ConsoleReport -ComparisonResults $comparison -PreviousPath $previousPath -CurrentPath $currentPath
+
+        $csvPath = Join-Path $ReportPath "stig_delta_report.csv"
+        Export-CsvReport -ComparisonResults $comparison -OutputPath $csvPath
+        Write-ColorOutput "Report saved: $csvPath" "Green"
+
+        Write-LogReport -ComparisonResults $comparison -PreviousPath $previousPath -CurrentPath $currentPath
+        Write-ColorOutput "Log updated: $LogPath" "Green"
+
+        Write-Host ""
+        Write-ColorOutput "Execution completed successfully." "Green"
+        Write-Host ""
+    }
+    catch {
+        Write-ColorOutput "ERROR: $($_.Exception.Message)" "Red"
+        if ($script:TroubleshootingMode -eq "Basic" -or $script:TroubleshootingMode -eq "Deep") {
+            Write-Host "Stack Trace: $($_.ScriptStackTrace)"
+        }
+        exit 1
+    }
+}
+
+Main
