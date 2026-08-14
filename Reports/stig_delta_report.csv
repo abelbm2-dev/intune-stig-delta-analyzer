@@ -1,3 +1,4 @@
-﻿"Status","Category","Setting","PreviousValue","CurrentValue"
-"Added","Unknown","microsoft edgev115~policy~microsoft edge composeinlineenabled","","device_vendor_msft_policy_config_microsoft_edgev115~policy~microsoft_edge_composeinlineenabled_0"
-"Added","Unknown","microsoft edgev105~policy~microsoft edge microsofteditorproofingenabled","","device_vendor_msft_policy_config_microsoft_edgev105~policy~microsoft_edge_microsofteditorproofingenabled_0"
+﻿Status,Category,Setting,PreviousValue,CurrentValue
+Added,Microsoft Defender,admx microsoftdefenderantivirus exclusions processes,,device_vendor_msft_policy_config_admx_microsoftdefenderantivirus_exclusions_processes_0
+Added,Microsoft Defender,admx microsoftdefenderantivirus mpengine enablefilehashcomputation,,device_vendor_msft_policy_config_admx_microsoftdefenderantivirus_mpengine_enablefilehashcomputation_1
+Added,Microsoft Defender,admx microsoftdefenderantivirus exclusions paths,,device_vendor_msft_policy_config_admx_microsoftdefenderantivirus_exclusions_paths_0
