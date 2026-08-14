@@ -441,7 +441,7 @@ function Export-CsvReport {
     foreach ($item in $ComparisonResults["Added"]) {
         $category = Get-CategoryName -SettingDefinitionId $item.Id
         $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
-        $value = Normalize-ForDisplay -Value $item.Value
+        $value = Translate-PolicyValue -Value $item.Value -Category $category -SettingName $settingName
         $csvData += [PSCustomObject]@{
             Status = "Added"
             Category = $category
@@ -454,7 +454,7 @@ function Export-CsvReport {
     foreach ($item in $ComparisonResults["Removed"]) {
         $category = Get-CategoryName -SettingDefinitionId $item.Id
         $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
-        $value = Normalize-ForDisplay -Value $item.Value
+        $value = Translate-PolicyValue -Value $item.Value -Category $category -SettingName $settingName
         $csvData += [PSCustomObject]@{
             Status = "Removed"
             Category = $category
@@ -467,8 +467,8 @@ function Export-CsvReport {
     foreach ($item in $ComparisonResults["Modified"]) {
         $category = Get-CategoryName -SettingDefinitionId $item.Id
         $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
-        $prevValue = Normalize-ForDisplay -Value $item.Previous
-        $currValue = Normalize-ForDisplay -Value $item.Current
+        $prevValue = Translate-PolicyValue -Value $item.Previous -Category $category -SettingName $settingName
+        $currValue = Translate-PolicyValue -Value $item.Current -Category $category -SettingName $settingName
         $csvData += [PSCustomObject]@{
             Status = "Modified"
             Category = $category
@@ -565,21 +565,24 @@ Details:
 
     foreach ($item in $ComparisonResults["Added"]) {
         $category = Get-CategoryName -SettingDefinitionId $item.Id
-        $value = Normalize-ForDisplay -Value $item.Value
-        $logEntry += "`n - Added    | $($item.Id) | Category: $category | Value: $value"
+        $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+        $value = Translate-PolicyValue -Value $item.Value -Category $category -SettingName $settingName
+        $logEntry += "`n - Added    | $category > $settingName | Current: $value"
     }
 
     foreach ($item in $ComparisonResults["Removed"]) {
         $category = Get-CategoryName -SettingDefinitionId $item.Id
-        $value = Normalize-ForDisplay -Value $item.Value
-        $logEntry += "`n - Removed  | $($item.Id) | Category: $category | Value: $value"
+        $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+        $value = Translate-PolicyValue -Value $item.Value -Category $category -SettingName $settingName
+        $logEntry += "`n - Removed  | $category > $settingName | Previous: $value"
     }
 
     foreach ($item in $ComparisonResults["Modified"]) {
         $category = Get-CategoryName -SettingDefinitionId $item.Id
-        $prevValue = Normalize-ForDisplay -Value $item.Previous
-        $currValue = Normalize-ForDisplay -Value $item.Current
-        $logEntry += "`n - Modified | $($item.Id) | Category: $category | Previous: $prevValue | Current: $currValue"
+        $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
+        $prevValue = Translate-PolicyValue -Value $item.Previous -Category $category -SettingName $settingName
+        $currValue = Translate-PolicyValue -Value $item.Current -Category $category -SettingName $settingName
+        $logEntry += "`n - Modified | $category > $settingName | Previous: $prevValue | Current: $currValue"
     }
 
     $logEntry += "`n========================================================"
@@ -625,7 +628,8 @@ function Main {
 
         Write-ConsoleReport -ComparisonResults $comparison -PreviousPath $previousPath -CurrentPath $currentPath
 
-        $csvPath = Join-Path $ReportPath "stig_delta_report.csv"
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $csvPath = Join-Path $ReportPath "stig_delta_report_$timestamp.csv"
         Export-CsvReport -ComparisonResults $comparison -OutputPath $csvPath
         Write-ColorOutput "Report saved: $csvPath" "Green"
 
