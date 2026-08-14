@@ -243,11 +243,9 @@ script_comparison/
 
 ### Enabling Troubleshooting Mode
 
-When prompted, select:
-```
-Enable troubleshooting mode for detailed error output? (Y/N):
-Y
-```
+- PowerShell 5.1 or later
+- Windows operating system
+- Access to Settings Catalog JSON exports
 
 This will display:
 - Detailed error messages
@@ -256,6 +254,11 @@ This will display:
 - Raw setting definition IDs for debugging
 
 ### Common Issues
+1. Download two STIG JSON exports from Intune Policy Package (month/year) (e.g., v2r7 and v2r8 releases)
+2. Execute the delta analyzer script
+   - Select the .json file, right click and choose *copy as path*
+3. Review the generated CSV and log files
+4. Use delta information for STIG update documentation and compliance tracking
 
 **"File not found" error:**
 - Verify the file path is correct
