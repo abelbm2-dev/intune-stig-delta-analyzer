@@ -59,10 +59,12 @@ $LogPath = Join-Path $ScriptRoot "STIG_Comparison.log"
 $CategoryMappingPath = Join-Path $ScriptRoot "CategoryMappings.json"
 $FriendlyNameMapPath = Join-Path $ScriptRoot "FriendlyNameMappings.json"
 $TranslationProfilePath = Join-Path $ScriptRoot "TranslationProfiles.json"
+$PathMappingPath = Join-Path $ScriptRoot "PathMappings.json"
 
 $Global:CategoryMappings = $null
 $Global:FriendlyNameMappings = $null
 $Global:TranslationProfiles = $null
+$Global:PathMappings = $null
 
 # ============================================================
 # CONSOLE COLOR OUTPUT FUNCTIONS
@@ -184,6 +186,20 @@ function Initialize-MappingFiles {
         } | ConvertTo-Json
         Set-Content -Path $TranslationProfilePath -Value $defaultTranslationProfiles
     }
+
+    if (-not (Test-Path $PathMappingPath)) {
+        $defaultPathMappings = @{
+            "audit_objectaccess" = "Security Settings > Advanced Audit Policy Configuration > Object Access"
+            "audit_system" = "Security Settings > Advanced Audit Policy Configuration > System"
+            "audit_logon" = "Security Settings > Advanced Audit Policy Configuration > Logon/Logoff"
+            "userrights" = "Security Settings > Local Policies > User Rights Assignment"
+            "defender" = "Windows Components > Microsoft Defender Antivirus"
+            "firewall" = "Windows Components > Windows Defender Firewall"
+            "bitlocker" = "Windows Components > BitLocker Drive Encryption"
+            "microsoft_edge" = "Windows Components > Microsoft Edge"
+        } | ConvertTo-Json
+        Set-Content -Path $PathMappingPath -Value $defaultPathMappings
+    }
 }
 
 function Import-MappingFiles {
@@ -191,6 +207,7 @@ function Import-MappingFiles {
         $Global:CategoryMappings = Get-Content -Path $CategoryMappingPath -Raw | ConvertFrom-Json
         $Global:FriendlyNameMappings = Get-Content -Path $FriendlyNameMapPath -Raw | ConvertFrom-Json
         $Global:TranslationProfiles = Get-Content -Path $TranslationProfilePath -Raw | ConvertFrom-Json
+        $Global:PathMappings = Get-Content -Path $PathMappingPath -Raw | ConvertFrom-Json
     }
     catch {
         throw "Failed to load mapping files. Error: $($_.Exception.Message)"
@@ -249,6 +266,19 @@ function Test-SupportedPolicyType {
 # TRANSLATION FUNCTIONS
 # ============================================================
 
+function Get-SettingPath {
+    param([string]$SettingDefinitionId)
+    if (Test-Blank -Value $SettingDefinitionId) { return "" }
+    
+    $idLower = $SettingDefinitionId.ToLower()
+    foreach ($property in $Global:PathMappings.PSObject.Properties) {
+        if ($idLower -match $property.Name) {
+            return $property.Value
+        }
+    }
+    return ""
+}
+
 function Get-CategoryName {
     param([string]$SettingDefinitionId)
     if (Test-Blank -Value $SettingDefinitionId) { return "Unknown" }
@@ -292,6 +322,37 @@ function Get-TranslationConfidence {
     if (-not $categoryUnknown) { return "Medium" }
     if (-not $settingBlank) { return "Low" }
     return "None"
+}
+
+function Get-TranslationValueWithDescription {
+    param([object]$Value, [string]$Category, [string]$SettingName)
+    $translated = Translate-PolicyValue -Value $Value -Category $Category -SettingName $SettingName
+    if ($translated -eq $Value) {
+        return $Value
+    }
+    return "$Value ($translated)"
+}
+
+function Get-ConsoleValueDisplay {
+    param([object]$Value, [string]$Category, [string]$SettingName)
+    
+    $valueText = Convert-ToComparableText -Value $Value
+    if (Test-Blank -Value $valueText) { return "Not Configured" }
+    
+    # Extract numeric suffix from policy value IDs
+    $codeValue = $valueText
+    if ($valueText -match '_(\d+)$') {
+        $codeValue = $matches[1]
+    }
+    
+    # Get translation
+    $translated = Translate-PolicyValue -Value $Value -Category $Category -SettingName $SettingName
+    
+    # Format: "0 (Disabled)" or just "Not Configured"
+    if ($translated -ne $valueText) {
+        return "$codeValue ($translated)"
+    }
+    return $codeValue
 }
 
 function Translate-PolicyValue {
@@ -509,50 +570,83 @@ function Write-ConsoleReport {
     Write-Host ""
     Write-Host "SUMMARY" -ForegroundColor Cyan
     Write-Host "-------"
-    Write-ColorOutput "Added Settings:     $addedCount" "Green"
-    Write-ColorOutput "Removed Settings:   $removedCount" "Red"
     Write-ColorOutput "Modified Settings:  $modifiedCount" "Yellow"
+    Write-ColorOutput "Removed Settings:   $removedCount" "Red"
+    Write-ColorOutput "Added Settings:     $addedCount" "Green"
     Write-Host ""
 
     if ($modifiedCount -gt 0) {
         Write-Host "MODIFIED SETTINGS" -ForegroundColor Yellow
-        Write-Host "-----------------"
+        Write-Host "==================" -ForegroundColor Yellow
+        $count = 0
         foreach ($item in $ComparisonResults["Modified"]) {
+            $count++
             $category = Get-CategoryName -SettingDefinitionId $item.Id
             $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
-            $prevTranslated = Translate-PolicyValue -Value $item.Previous -Category $category -SettingName $settingName
-            $currTranslated = Translate-PolicyValue -Value $item.Current -Category $category -SettingName $settingName
-            Write-Host "$category -> $settingName"
-            Write-ColorOutput "  Previous: $prevTranslated" "Gray"
-            Write-ColorOutput "  Current:  $currTranslated" "Gray"
+            $path = Get-SettingPath -SettingDefinitionId $item.Id
+            $prevValue = Get-ConsoleValueDisplay -Value $item.Previous -Category $category -SettingName $settingName
+            $currValue = Get-ConsoleValueDisplay -Value $item.Current -Category $category -SettingName $settingName
+            
             Write-Host ""
+            Write-ColorOutput "[$count] MODIFIED" "Yellow"
+            Write-Host "Category: $category"
+            Write-Host "Setting: $settingName"
+            if (-not (Test-Blank -Value $path)) {
+                Write-Host "Path: $path"
+            }
+            Write-Host ""
+            Write-ColorOutput "Previous Value: $prevValue" "Gray"
+            Write-ColorOutput "Current Value:  $currValue" "Gray"
         }
+        Write-Host ""
     }
 
     if ($removedCount -gt 0) {
         Write-Host "REMOVED SETTINGS" -ForegroundColor Red
-        Write-Host "----------------"
+        Write-Host "================" -ForegroundColor Red
+        $count = 0
         foreach ($item in $ComparisonResults["Removed"]) {
+            $count++
             $category = Get-CategoryName -SettingDefinitionId $item.Id
             $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
-            $value = Translate-PolicyValue -Value $item.Value -Category $category -SettingName $settingName
-            Write-ColorOutput "[X] $category -> $settingName" "Red"
-            Write-ColorOutput "    Value: $value" "Gray"
+            $path = Get-SettingPath -SettingDefinitionId $item.Id
+            $value = Get-ConsoleValueDisplay -Value $item.Value -Category $category -SettingName $settingName
+            
             Write-Host ""
+            Write-ColorOutput "[$count] REMOVED" "Red"
+            Write-Host "Category: $category"
+            Write-Host "Setting: $settingName"
+            if (-not (Test-Blank -Value $path)) {
+                Write-Host "Path: $path"
+            }
+            Write-Host ""
+            Write-ColorOutput "Previous Value: $value" "Gray"
         }
+        Write-Host ""
     }
 
     if ($addedCount -gt 0) {
         Write-Host "ADDED SETTINGS" -ForegroundColor Green
-        Write-Host "--------------"
+        Write-Host "==============" -ForegroundColor Green
+        $count = 0
         foreach ($item in $ComparisonResults["Added"]) {
+            $count++
             $category = Get-CategoryName -SettingDefinitionId $item.Id
             $settingName = ConvertTo-FriendlySettingName -SettingDefinitionId $item.Id
-            $value = Translate-PolicyValue -Value $item.Value -Category $category -SettingName $settingName
-            Write-ColorOutput "[+] $category -> $settingName" "Green"
-            Write-ColorOutput "    Value: $value" "Gray"
+            $path = Get-SettingPath -SettingDefinitionId $item.Id
+            $value = Get-ConsoleValueDisplay -Value $item.Value -Category $category -SettingName $settingName
+            
             Write-Host ""
+            Write-ColorOutput "[$count] ADDED" "Green"
+            Write-Host "Category: $category"
+            Write-Host "Setting: $settingName"
+            if (-not (Test-Blank -Value $path)) {
+                Write-Host "Path: $path"
+            }
+            Write-Host ""
+            Write-ColorOutput "Current Value: $value" "Gray"
         }
+        Write-Host ""
     }
 
     Write-Host "========================================================" -ForegroundColor Cyan
