@@ -282,8 +282,11 @@ function Get-SettingPath {
 function Get-CategoryName {
     param([string]$SettingDefinitionId)
     if (Test-Blank -Value $SettingDefinitionId) { return "Unknown" }
+    
+    $idLower = $SettingDefinitionId.ToLower()
     foreach ($property in $Global:CategoryMappings.PSObject.Properties) {
-        if ($SettingDefinitionId -match $property.Name) {
+        # Use case-insensitive pattern matching
+        if ($idLower -match $property.Name.ToLower()) {
             return $property.Value
         }
     }

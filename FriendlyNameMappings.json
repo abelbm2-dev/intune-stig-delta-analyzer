@@ -1,4 +1,9 @@
 {
-    "defender_allowrealtimemonitoring":  "Allow Real-Time Monitoring",
-    "audit_objectaccess_auditfilesystem":  "Object Access - Audit File System"
+    "defender_allowrealtimemonitoring": "Allow Real-Time Monitoring",
+    "audit_objectaccess_auditfilesystem": "Object Access - Audit File System",
+    "admx_microsoftdefender_antivirus_exclusions_processes": "Microsoft Defender - Antivirus Exclusions - Processes",
+    "admx_microsoftdefender_antivirus_mpengine_enablefiletashhcomputation": "Microsoft Defender - File Tagging Enabled",
+    "admx_microsoftdefender_antivirus_exclusions_paths": "Microsoft Defender - Antivirus Exclusions - Paths",
+    "firewall_enablefirewall": "Enable Firewall",
+    "bitlocker_enablebitlocker": "Enable BitLocker"
 }
