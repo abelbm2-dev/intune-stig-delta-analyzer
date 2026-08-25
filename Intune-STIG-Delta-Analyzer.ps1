@@ -300,12 +300,22 @@ function Translate-PolicyValue {
     $valueText = Convert-ToComparableText -Value $Value
     if (Test-Blank -Value $valueText) { return "Not Configured" }
 
+    # Extract numeric suffix from policy value IDs (e.g., "...id_0" -> "0")
+    $valueToTranslate = $valueText
+    if ($valueText -match '_(\d+)$') {
+        $valueToTranslate = $matches[1]
+    }
+    # Also handle simple true/false values
+    if ($valueText -eq "true" -or $valueText -eq "false") {
+        $valueToTranslate = $valueText
+    }
+
     $profile = "Default"
     if ($Category -match "audit|logon|logoff") { $profile = "Audit" }
     
     $profileObj = Get-PropertyValue -Object $Global:TranslationProfiles -PropertyName $profile
     if ($null -ne $profileObj) {
-        $translated = Get-PropertyValue -Object $profileObj -PropertyName $valueText
+        $translated = Get-PropertyValue -Object $profileObj -PropertyName $valueToTranslate
         if (-not (Test-Blank -Value $translated)) { return $translated }
     }
 
