@@ -16,21 +16,20 @@ A PowerShell-based tool for comparing Settings Catalog STIG (Security Technical 
 - Settings Catalog JSON exports
 - DoD STIG Settings Catalog files (e.g., "DoD Windows 11 STIG v2rX Settings Catalog.json")
 
-## Not Supported in v1
-
-- Endpoint Security policy exports
-- Security Baselines
-- Custom OMA-URI policies
-- Compliance policies
-
 ## Quick Start Guide
+1. Open the project in Visual Studio Code
+2. Open PowerShell
+3. Run the comparison script using the two Settings Catalog STIG json files
+4. Review the generated csv delta report
 
 ### Prerequisites
 
-- Windows 10 or Windows 11
+- Access to Visual Studio Code
 - PowerShell 5.1 or higher (PowerShell 7+ recommended)
 - Two Settings Catalog JSON export files to compare
-- Read/Write permissions to the script directory
+- Read/Write permissions to the script directory - **if required by the tool**
+
+**Note:** File locations and report names shown are examples and may be changed as needed
 
 ### Step 1: Prepare Your JSON Files
 
@@ -46,8 +45,8 @@ C:\STIG\DoD Windows 11 STIG v2r7 Settings Catalog.json
 C:\STIG\DoD Windows 11 STIG v2r8 Settings Catalog.json
 ```
 
-### Step 2: Open PowerShell
-
+### Step 2: Open the project in Visual Studio Code and open the Terminal
+Open PowerShell
 1. Press `Win + R`
 2. Type `powershell`
 3. Press Enter
@@ -202,7 +201,8 @@ Added,Microsoft Defender,Defender - Real-Time Monitoring,Enabled,
 1. Open in Microsoft Excel
 2. Use Auto-Filter (Data → AutoFilter) to filter by Status
 3. Sort by Category to group related changes
-4. Print or email to stakeholders
+4. Review the results to identify and validate configuration changes
+5. Store the csv in the designated location for audit and traceability
 
 **Note:** Values with newlines are displayed as multi-line in console output; in CSV and logs, newlines are replaced with `; ` for readability.
 
@@ -273,15 +273,6 @@ This will display:
 - Files may be identical versions
 - Files may not be in expected format
 - Enable troubleshooting mode for detailed messages
-
-## Future Enhancements
-
-- Endpoint Security policy comparison
-- Security Baseline comparison
-- POAM (Plan of Action and Milestones) correlation
-- Automated DISA/STIG delta validation
-- HTML report generation
-- Email notification of significant changes
 
 ## License
 
