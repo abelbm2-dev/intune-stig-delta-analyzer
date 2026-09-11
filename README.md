@@ -1,6 +1,6 @@
 # Settings Catalog STIG Delta Analyzer
 
-A PowerShell-based utility for comparing Settings Catalog STIG (Security Technical Implementation Guide) JSON exports and generating detailed delta reports.
+A PowerShell-based tool for comparing Settings Catalog STIG (Security Technical Implementation Guide) JSON exports and generating detailed delta reports that identify added, removed, modified, and/or unchanged configurations.
 
 ## Features
 
