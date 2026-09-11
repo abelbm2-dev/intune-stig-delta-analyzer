@@ -5,7 +5,7 @@ A PowerShell-based tool for comparing Settings Catalog STIG (Security Technical 
 ## Features
 
 - **Baseline Comparison**: Compare two Settings Catalog JSON exports (e.g., v2r7 vs v2r8)
-- **Delta Reporting**: Identifies Added, Removed, and Modified STIG settings
+- **Delta Reporting**: Identifies Added, Removed, Modified, and/or unchanged STIG settings
 - **Friendly Names**: Translates technical STIG IDs into human-readable category and setting names
 - **CSV Export**: Generates structured CSV reports for documentation and auditing
 - **Append-Only Logging**: Maintains execution history in a persistent log file
